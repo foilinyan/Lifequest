@@ -3,25 +3,43 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
+    name: Build Life Quest APK
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
-      - name: Checkout
+      - name: Download project
         uses: actions/checkout@v4
 
-      - name: Build APK
-        uses: ArtemSBulgakov/buildozer-action@v1
-        with:
-          command: buildozer android debug
-          buildozer_version: stable
+      - name: Prepare folders
+        run: |
+          mkdir -p .buildozer-global
+          mkdir -p bin
+
+      - name: Build APK with official Buildozer image
+        run: |
+          docker pull ghcr.io/kivy/buildozer:latest
+          docker run --rm \
+            --volume "${{ github.workspace }}:/home/user/hostcwd" \
+            --volume "${{ github.workspace }}/.buildozer-global:/home/user/.buildozer" \
+            ghcr.io/kivy/buildozer:latest \
+            android debug
+
+      - name: Show generated files
+        if: always()
+        run: |
+          echo "Files in bin:"
+          find bin -maxdepth 2 -type f -print || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: life-quest-apk
           path: bin/*.apk
+          if-no-files-found: error
