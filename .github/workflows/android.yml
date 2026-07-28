@@ -20,6 +20,7 @@ jobs:
       ANDROIDNDK: /opt/android-sdk/ndk/28.2.13676358
       ANDROIDAPI: "35"
       ANDROIDMINAPI: "23"
+      NDKAPI: "23"
 
     steps:
       - name: Download project
@@ -56,18 +57,26 @@ jobs:
             python3-pip \
             python3-venv
 
-      - name: Install Android command line tools
+      - name: Install Android command-line tools
         run: |
+          sudo rm -rf "$ANDROID_HOME"
           sudo mkdir -p "$ANDROID_HOME/cmdline-tools"
 
           wget -q \
             https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
-            -O /tmp/android-tools.zip
+            -O /tmp/android-command-tools.zip
 
-          sudo unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+          rm -rf /tmp/android-command-tools
+          mkdir -p /tmp/android-command-tools
+
+          unzip -q \
+            /tmp/android-command-tools.zip \
+            -d /tmp/android-command-tools
 
           sudo mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-          sudo mv /tmp/android-tools/cmdline-tools/* \
+
+          sudo cp -R \
+            /tmp/android-command-tools/cmdline-tools/. \
             "$ANDROID_HOME/cmdline-tools/latest/"
 
           sudo chown -R "$USER:$USER" "$ANDROID_HOME"
@@ -76,29 +85,52 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
+      - name: Create legacy sdkmanager path for Buildozer
+        run: |
+          rm -rf "$ANDROID_HOME/tools"
+
+          ln -s \
+            "$ANDROID_HOME/cmdline-tools/latest" \
+            "$ANDROID_HOME/tools"
+
+          echo "Modern sdkmanager:"
+          ls -la "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          echo "Buildozer-compatible sdkmanager:"
+          ls -la "$ANDROID_HOME/tools/bin/sdkmanager"
+
+          test -x "$ANDROID_HOME/tools/bin/sdkmanager"
+
       - name: Accept Android licenses
         run: |
-          yes | sdkmanager --licenses || true
+          yes | "$ANDROID_HOME/tools/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" \
+            --licenses || true
 
-      - name: Install Android SDK, AIDL and NDK
+      - name: Install SDK, Build Tools, AIDL and NDK
         run: |
-          sdkmanager \
+          "$ANDROID_HOME/tools/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;28.2.13676358"
 
-      - name: Check Android tools
+      - name: Verify Android installation
         run: |
-          echo "Android SDK:"
-          ls -la "$ANDROID_HOME"
-
-          echo "Build Tools:"
-          ls -la "$ANDROID_HOME/build-tools/35.0.0"
+          echo "SDK Manager:"
+          test -x "$ANDROID_HOME/tools/bin/sdkmanager"
+          "$ANDROID_HOME/tools/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" \
+            --version
 
           echo "AIDL:"
-          test -f "$ANDROID_HOME/build-tools/35.0.0/aidl"
-          "$ANDROID_HOME/build-tools/35.0.0/aidl" --help >/dev/null || true
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aidl"
+          ls -la "$ANDROID_HOME/build-tools/35.0.0/aidl"
+
+          echo "Android platform:"
+          test -d "$ANDROID_HOME/platforms/android-35"
+          ls -la "$ANDROID_HOME/platforms/android-35"
 
           echo "NDK:"
           test -d "$ANDROIDNDK"
@@ -106,42 +138,41 @@ jobs:
 
       - name: Install Buildozer
         run: |
-          python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install --upgrade \
+            pip \
+            setuptools \
+            wheel
+
           python3 -m pip install \
             buildozer \
             cython==0.29.36
 
-      - name: Clean previous build
+          buildozer --version
+
+      - name: Clean previous project build
         run: |
           sudo rm -rf .buildozer
           sudo rm -rf bin
           mkdir -p bin
 
-      - name: Configure Buildozer SDK paths
+      - name: Show Buildozer configuration
         run: |
-          sed -i \
-            's|^#\?android.sdk_path *=.*|android.sdk_path = /opt/android-sdk|' \
-            buildozer.spec
-
-          sed -i \
-            's|^#\?android.ndk_path *=.*|android.ndk_path = /opt/android-sdk/ndk/28.2.13676358|' \
-            buildozer.spec
-
-          echo ""
-          echo "Android settings:"
+          echo "buildozer.spec Android settings:"
           grep -E \
-            "android.api|android.minapi|android.ndk|android.sdk_path|android.ndk_path|p4a.branch" \
+            "android.api|android.minapi|android.ndk|android.sdk_path|android.ndk_path|android.archs|p4a.branch" \
             buildozer.spec || true
 
       - name: Build APK
         run: |
-          buildozer -v android debug
+          yes | buildozer -v android debug
 
       - name: Find generated APK
         if: always()
         run: |
-          echo "Generated files:"
-          find . -type f \( -name "*.apk" -o -name "*.aab" \) -print
+          echo "Generated Android files:"
+          find . -type f \
+            \( -name "*.apk" -o -name "*.aab" \) \
+            -print || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
