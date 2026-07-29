@@ -2,11 +2,13 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - main
       - master
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -18,26 +20,23 @@ jobs:
       ANDROID_HOME: /opt/android-sdk
       ANDROID_SDK_ROOT: /opt/android-sdk
       ANDROIDSDK: /opt/android-sdk
-
       ANDROIDNDK: /opt/android-sdk/ndk/28.2.13676358
       ANDROIDNDKVER: 28c
-
       ANDROIDAPI: "35"
       ANDROIDMINAPI: "23"
       NDKAPI: "23"
 
     steps:
       - name: Download project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Install Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -45,227 +44,130 @@ jobs:
       - name: Install Linux dependencies
         shell: bash
         run: |
-          set -e
-
+          set -euxo pipefail
           sudo apt-get update
-
           sudo apt-get install -y \
-            git \
-            zip \
-            unzip \
-            wget \
-            curl \
             autoconf \
             automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo6 \
-            cmake \
-            libffi-dev \
-            libssl-dev \
             build-essential \
             ccache \
+            cmake \
             gettext \
-            patch
+            git \
+            libffi-dev \
+            libltdl-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libssl-dev \
+            libtool \
+            libtool-bin \
+            patch \
+            pkg-config \
+            unzip \
+            wget \
+            zip \
+            zlib1g-dev
 
-      - name: Install Android command-line tools
+      - name: Install Android SDK and NDK
         shell: bash
         run: |
-          set -e
+          set -euxo pipefail
 
           sudo rm -rf "$ANDROID_HOME"
           sudo mkdir -p "$ANDROID_HOME/cmdline-tools"
+          sudo chown -R "$USER:$USER" "$ANDROID_HOME"
 
           wget -q \
             https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
-            -O /tmp/android-command-tools.zip
+            -O /tmp/android-commandlinetools.zip
 
-          rm -rf /tmp/android-command-tools
-          mkdir -p /tmp/android-command-tools
+          rm -rf /tmp/android-commandlinetools
+          mkdir -p /tmp/android-commandlinetools
+          unzip -q /tmp/android-commandlinetools.zip -d /tmp/android-commandlinetools
 
-          unzip -q \
-            /tmp/android-command-tools.zip \
-            -d /tmp/android-command-tools
-
-          sudo mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-
-          sudo cp -R \
-            /tmp/android-command-tools/cmdline-tools/. \
+          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+          cp -R /tmp/android-commandlinetools/cmdline-tools/. \
             "$ANDROID_HOME/cmdline-tools/latest/"
-
-          sudo chown -R "$USER:$USER" "$ANDROID_HOME"
 
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
-      - name: Create Buildozer-compatible sdkmanager path
-        shell: bash
-        run: |
-          set -e
-
-          rm -rf "$ANDROID_HOME/tools"
-
-          ln -s \
-            "$ANDROID_HOME/cmdline-tools/latest" \
-            "$ANDROID_HOME/tools"
-
-          test -x "$ANDROID_HOME/tools/bin/sdkmanager"
-
-          echo "sdkmanager found:"
-          "$ANDROID_HOME/tools/bin/sdkmanager" \
-            --sdk_root="$ANDROID_HOME" \
-            --version
-
-      - name: Accept Android licenses
-        shell: bash
-        run: |
           set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+          set -o pipefail
 
-          yes | "$ANDROID_HOME/tools/bin/sdkmanager" \
-            --sdk_root="$ANDROID_HOME" \
-            --licenses
-
-          exit 0
-
-      - name: Install Android SDK and NDK
-        shell: bash
-        run: |
-          set -e
-
-          "$ANDROID_HOME/tools/bin/sdkmanager" \
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;28.2.13676358"
 
+          # Buildozer 1.5.0 may still look for tools/bin/sdkmanager.
+          rm -rf "$ANDROID_HOME/tools"
+          ln -s "$ANDROID_HOME/cmdline-tools/latest" "$ANDROID_HOME/tools"
+
       - name: Verify Android environment
         shell: bash
         run: |
-          set -e
-
-          echo "Python:"
+          set -euxo pipefail
           python --version
-
-          echo "Java:"
           java -version
-
-          echo "SDK Manager:"
           test -x "$ANDROID_HOME/tools/bin/sdkmanager"
-          "$ANDROID_HOME/tools/bin/sdkmanager" \
-            --sdk_root="$ANDROID_HOME" \
-            --version
-
-          echo "AIDL:"
           test -x "$ANDROID_HOME/build-tools/35.0.0/aidl"
-          "$ANDROID_HOME/build-tools/35.0.0/aidl" --version || true
-
-          echo "Android platform:"
           test -d "$ANDROID_HOME/platforms/android-35"
-
-          echo "Android NDK:"
           test -d "$ANDROIDNDK"
-
-          echo "NDK version:"
           cat "$ANDROIDNDK/source.properties"
 
       - name: Install Buildozer
         shell: bash
         run: |
-          set -e
-
-          python -m pip install --upgrade \
-            pip \
-            setuptools \
-            wheel
-
-          python -m pip install \
-            "buildozer==1.5.0" \
-            "cython==0.29.36"
-
+          set -euxo pipefail
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install "buildozer==1.5.0" "cython==0.29.36"
           buildozer --version
           cython --version
+
+      - name: Validate project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f main.py
+          test -f buildozer.spec
+          grep -Fq "requirements = python3==3.12.10,kivy==2.3.1" buildozer.spec
+          python -m py_compile main.py
 
       - name: Clean previous build
         shell: bash
         run: |
-          set -e
-
-          rm -rf .buildozer
-          rm -rf bin
-
+          rm -rf .buildozer bin
           mkdir -p bin
 
-      - name: Check project files
-        shell: bash
-        run: |
-          set -e
-
-          test -f main.py
-          test -f buildozer.spec
-
-          echo "Project files:"
-          find . -maxdepth 2 -type f | sort
-
-          echo
-          echo "Buildozer configuration:"
-          grep -E \
-            "title|package.name|package.domain|requirements|android.api|android.minapi|android.ndk|android.ndk_api|android.sdk_path|android.ndk_path|android.archs|p4a.branch" \
-            buildozer.spec || true
-
-          echo
-          echo "Required Python version:"
-          grep "^requirements" buildozer.spec
-
-          grep -q \
-            "python3==3.12.10" \
-            buildozer.spec
-
       - name: Build APK
-        id: build_apk
         shell: bash
         run: |
           set -o pipefail
+          buildozer -v android debug 2>&1 | tee buildozer.log
 
-          buildozer -v android debug \
-            2>&1 | tee buildozer.log
-
-      - name: Show build error
+      - name: Show actual error
         if: failure()
         shell: bash
         run: |
-          echo "=================================================="
-          echo "LAST 300 LOG LINES"
-          echo "=================================================="
-
+          echo "===== LAST 300 LINES ====="
           tail -n 300 buildozer.log || true
-
-          echo
-          echo "=================================================="
-          echo "ERRORS FOUND IN LOG"
-          echo "=================================================="
-
+          echo "===== MATCHED ERRORS ====="
           grep -inE \
-            "error:|fatal:|exception|traceback|command failed|build failed|no such file|not found|returned non-zero|process completed" \
-            buildozer.log \
-            | tail -n 200 || true
+            "error:|fatal:|exception|traceback|failed|no such file|not found|returned non-zero" \
+            buildozer.log | tail -n 200 || true
 
-      - name: Find generated APK
+      - name: Verify generated APK
         if: success()
         shell: bash
         run: |
-          set -e
-
-          echo "Generated Android files:"
-
-          find . -type f \
-            \( -name "*.apk" -o -name "*.aab" \) \
-            -print
-
+          set -euxo pipefail
+          find bin -maxdepth 1 -type f -name "*.apk" -print
           test -n "$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
 
       - name: Upload APK
@@ -277,7 +179,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Upload full build log
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -285,3 +187,4 @@ jobs:
           path: buildozer.log
           if-no-files-found: warn
           retention-days: 7
+
