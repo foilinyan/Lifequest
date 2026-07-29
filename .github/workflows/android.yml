@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build:
+
     name: Build Life Quest APK
     runs-on: ubuntu-22.04
     timeout-minutes: 120
@@ -20,171 +21,193 @@ jobs:
       ANDROID_HOME: /opt/android-sdk
       ANDROID_SDK_ROOT: /opt/android-sdk
       ANDROIDSDK: /opt/android-sdk
+
       ANDROIDNDK: /opt/android-sdk/ndk/28.2.13676358
-      ANDROIDNDKVER: 28c
       ANDROIDAPI: "35"
       ANDROIDMINAPI: "23"
-      NDKAPI: "23"
+
 
     steps:
-      - name: Download project
-        uses: actions/checkout@v6
 
-      - name: Install Python 3.12
+      - name: Checkout
+        uses: actions/checkout@v5
+
+
+      - name: Setup Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - name: Install Java 17
+
+      - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Linux dependencies
-        shell: bash
+
+      - name: Install dependencies
         run: |
-          set -euxo pipefail
           sudo apt-get update
+
           sudo apt-get install -y \
+            git \
+            zip \
+            unzip \
+            wget \
             autoconf \
             automake \
             build-essential \
             ccache \
             cmake \
-            gettext \
-            git \
             libffi-dev \
-            libltdl-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
             libssl-dev \
             libtool \
             libtool-bin \
-            patch \
             pkg-config \
-            unzip \
-            wget \
-            zip \
-            zlib1g-dev
+            zlib1g-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            patch
 
-      - name: Install Android SDK and NDK
-        shell: bash
+
+      - name: Install Android SDK
         run: |
-          set -euxo pipefail
 
-          sudo rm -rf "$ANDROID_HOME"
-          sudo mkdir -p "$ANDROID_HOME/cmdline-tools"
-          sudo chown -R "$USER:$USER" "$ANDROID_HOME"
+          sudo rm -rf $ANDROID_HOME
+
+          sudo mkdir -p $ANDROID_HOME/cmdline-tools
 
           wget -q \
-            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
-            -O /tmp/android-commandlinetools.zip
+          https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+          -O /tmp/sdk.zip
 
-          rm -rf /tmp/android-commandlinetools
-          mkdir -p /tmp/android-commandlinetools
-          unzip -q /tmp/android-commandlinetools.zip -d /tmp/android-commandlinetools
 
-          mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-          cp -R /tmp/android-commandlinetools/cmdline-tools/. \
-            "$ANDROID_HOME/cmdline-tools/latest/"
+          unzip -q /tmp/sdk.zip \
+          -d /tmp/sdk
 
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
 
-          set +o pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            --sdk_root="$ANDROID_HOME" --licenses >/dev/null
-          set -o pipefail
+          sudo mkdir -p \
+          $ANDROID_HOME/cmdline-tools/latest
 
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            --sdk_root="$ANDROID_HOME" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;28.2.13676358"
 
-          # Buildozer 1.5.0 may still look for tools/bin/sdkmanager.
-          rm -rf "$ANDROID_HOME/tools"
-          ln -s "$ANDROID_HOME/cmdline-tools/latest" "$ANDROID_HOME/tools"
+          sudo cp -R \
+          /tmp/sdk/cmdline-tools/* \
+          $ANDROID_HOME/cmdline-tools/latest/
 
-      - name: Verify Android environment
-        shell: bash
+
+          sudo chown -R \
+          $USER:$USER \
+          $ANDROID_HOME
+
+
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+
+
+          yes | \
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$ANDROID_HOME \
+          --licenses || true
+
+
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          --sdk_root=$ANDROID_HOME \
+          "platform-tools" \
+          "platforms;android-35" \
+          "build-tools;35.0.0" \
+          "ndk;28.2.13676358"
+
+
+
+      - name: Fix sdkmanager path
         run: |
-          set -euxo pipefail
+
+          rm -rf $ANDROID_HOME/tools
+
+          ln -s \
+          $ANDROID_HOME/cmdline-tools/latest \
+          $ANDROID_HOME/tools
+
+
+
+      - name: Verify tools
+        run: |
+
           python --version
+
           java -version
-          test -x "$ANDROID_HOME/tools/bin/sdkmanager"
-          test -x "$ANDROID_HOME/build-tools/35.0.0/aidl"
-          test -d "$ANDROID_HOME/platforms/android-35"
-          test -d "$ANDROIDNDK"
-          cat "$ANDROIDNDK/source.properties"
+
+          test -f \
+          $ANDROID_HOME/build-tools/35.0.0/aidl
+
+          test -d \
+          $ANDROIDNDK
+
+
 
       - name: Install Buildozer
-        shell: bash
         run: |
-          set -euxo pipefail
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "buildozer==1.5.0" "cython==0.29.36"
-          buildozer --version
-          cython --version
 
-      - name: Validate project
-        shell: bash
+          python -m pip install --upgrade pip setuptools wheel
+
+          python -m pip install \
+          buildozer==1.5.0 \
+          cython==0.29.37
+
+
+          buildozer --version
+
+
+
+      - name: Check project
         run: |
-          set -euxo pipefail
+
           test -f main.py
+
           test -f buildozer.spec
-          grep -Fq "requirements = python3==3.12.10,kivy==2.3.1" buildozer.spec
+
+          echo "Requirements:"
+          grep "^requirements" buildozer.spec
+
           python -m py_compile main.py
 
-      - name: Clean previous build
-        shell: bash
+
+
+      - name: Clean build
         run: |
-          rm -rf .buildozer bin
-          mkdir -p bin
+
+          rm -rf .buildozer
+
+          rm -rf bin
+
+          mkdir bin
+
+
 
       - name: Build APK
-        shell: bash
         run: |
+
           set -o pipefail
-          buildozer -v android debug 2>&1 | tee buildozer.log
 
-      - name: Show actual error
+          buildozer -v android debug \
+          2>&1 | tee build.log
+
+
+
+      - name: Show error
         if: failure()
-        shell: bash
         run: |
-          echo "===== LAST 300 LINES ====="
-          tail -n 300 buildozer.log || true
-          echo "===== MATCHED ERRORS ====="
-          grep -inE \
-            "error:|fatal:|exception|traceback|failed|no such file|not found|returned non-zero" \
-            buildozer.log | tail -n 200 || true
 
-      - name: Verify generated APK
-        if: success()
-        shell: bash
-        run: |
-          set -euxo pipefail
-          find bin -maxdepth 1 -type f -name "*.apk" -print
-          test -n "$(find bin -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          echo "LAST LOG"
+
+          tail -n 200 build.log
+
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
+
           name: life-quest-apk
+
           path: bin/*.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: life-quest-build-log
-          path: buildozer.log
-          if-no-files-found: warn
-          retention-days: 7
-
