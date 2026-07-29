@@ -8,7 +8,7 @@ package.domain = com.foili
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,json,ttf
 
-version = 0.1
+version = 0.1.0
 
 requirements = hostpython3==3.12.10,python3==3.12.10,kivy==2.3.1
 
@@ -27,10 +27,12 @@ android.accept_sdk_license = True
 android.skip_update = False
 
 android.archs = arm64-v8a
+
 android.allow_backup = True
 
 p4a.bootstrap = sdl2
-p4a.branch = develop
+p4a.branch = master
+
 
 [buildozer]
 
